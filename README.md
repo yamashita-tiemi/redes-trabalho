@@ -1,31 +1,53 @@
-Running the Code
-Your implementation consists of three main components:
-    protocol.py - Core protocol implementation
-    client.py - Sender implementation
-    server.py - Receiver implementation
-    test.py - Test script to evaluate the protocol
+# Reliable UDP Protocol
 
-TEST
-The easiest way to test is using the test.py script, which automates the process of:
-    Creating test data
-    Starting a server
-    Starting a client to send data to the server
-    Verifying the transfer
+Este projeto é uma implementação de um protocolo de transporte confiável sobre o protocolo UDP, desenvolvido como parte da disciplina de Redes de Computadores da UFJF. A implementação adapta o UDP para torná-lo mais confiável, aplicando conceitos como entrega ordenada, confirmação acumulativa, controle de fluxo e controle de congestionamento.
 
-How to Run the Test
-Open a terminal and run: `python test.py`
-By default, this will:
-    Run a test with synthetic data (10MB)
-    Simulate a 5% packet loss rate
-    Create and verify the transfer
-You can customize the test with these options: `python test.py --test-type file --loss-rate 0.1 --data-size 20971520`
-This would:
-    Use an actual file instead of synthetic data
-    Set packet loss rate to 10%
-    Use a 20MB file size
+### Funcionalidades Implementadas
 
-MANUAL
-Start the server: `python server.py 5000 received_file.dat 0.05`
-This starts a server on port 5000, saving received data to received_file.dat with 5% packet loss.
-Start the client in another terminal: `python client.py 127.0.0.1 5000 test_file.dat`
-Or to send synthetic data: `python client.py 127.0.0.1 5000 --synthetic 4096`
+- Entrega Ordenada: Cada pacote possui um número de sequência para garantir a ordem correta na recepção.
+
+- Confirmação Acumulativa: O destinatário envia ACKs acumulativos para confirmar o recebimento de múltiplos pacotes.
+
+- Controle de Fluxo: O remetente ajusta o envio de pacotes com base no tamanho da janela do destinatário.
+
+- Controle de Congestionamento: Implementação baseada nos conceitos de Slow Start e Congestion Avoidance do TCP para reduzir o fluxo de envio em caso de perdas excessivas.
+
+### Estrutura do Código
+
+O projeto é composto pelos seguintes arquivos:
+
+- protocol.py - Implementação central do protocolo.
+
+- client.py - Implementação do remetente.
+
+- server.py - Implementação do destinatário.
+
+- test.py - Script de teste para avaliar a confiabilidade do protocolo.
+
+
+
+### Para executar
+
+#### Teste Automatizado
+O script test.py facilita a execução dos testes de transmissão de dados: ```python test.py```
+
+Por padrão, isso irá: Criar dados sintéticos (10MB), simular uma taxa de perda de pacotes de 5% e transferir os dados e verificar a integridade da transmissão.
+
+Para personalizar os testes, use: ```python test.py --test-type file --loss-rate 0.1 --data-size 20971520```
+
+Isso irá: Utilizar um arquivo real ao invés de dados sintéticos, configurar a taxa de perda de pacotes para 10% e usar um arquivo de 20MB para teste.
+
+
+#### Execução Manual
+
+Inicie o servidor: ```python server.py 5000 received_file.dat 0.05```
+
+Isso inicia um servidor na porta 5000, salvando os dados recebidos no arquivo received_file.dat e simulando uma perda de pacotes de 5%.
+
+Em outra aba do terminal, inicie o cliente: ```python client.py 127.0.0.1 5000 test_file.dat```
+
+Para enviar dados sintéticos, utilize: ```python client.py 127.0.0.1 5000 --synthetic 4096```
+
+### Relatório
+
+Para mais detalhes sobre a implementação e os testes realizados, consulte o relatório disponível em: [Relatório](https://www.overleaf.com/read/tqfssgbfwdhb#768510)
