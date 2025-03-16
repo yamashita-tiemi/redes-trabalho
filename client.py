@@ -32,6 +32,7 @@ class ReliableUDPClient(ReliableUDP):
         self.next_seq_to_send = self.sequence_number  # Next sequence number to send
         self.base = self.sequence_number  # Base of the window (oldest unacknowledged packet)
         self.receiver_window = INITIAL_WINDOW_SIZE  # Flow control - receiver's window size
+        self.initial_sequence = self.sequence_number
     
     def establish_connection(self):
         """Establish connection with three-way handshake"""
@@ -63,6 +64,8 @@ class ReliableUDPClient(ReliableUDP):
         # Update base and next_seq_to_send to match the new sequence number
         self.next_seq_to_send = self.sequence_number
         self.base = self.sequence_number
+
+        self.initial_sequence = self.sequence_number
 
         logger.info(f"Sequence number after handshake: {self.sequence_number}")
         
@@ -109,7 +112,7 @@ class ReliableUDPClient(ReliableUDP):
                     self._handle_acknowledgments()
                     
                     # Update progress
-                    bytes_sent = self.base - self.sequence_number
+                    bytes_sent = self.sequence_number - self.initial_sequence
                     progress = (bytes_sent / file_size) * 100
                     if bytes_sent % (MAX_PAYLOAD_SIZE * 100) == 0:
                         logger.info(f"Progress: {progress:.2f}% ({bytes_sent}/{file_size} bytes)")
@@ -166,7 +169,7 @@ class ReliableUDPClient(ReliableUDP):
                 self._handle_acknowledgments()
                 
                 # Update progress
-                bytes_sent = self.base - self.sequence_number
+                bytes_sent = self.sequence_number - self.initial_sequence
                 progress = (bytes_sent / total_bytes) * 100
                 if bytes_sent % (MAX_PAYLOAD_SIZE * 100) == 0:
                     logger.info(f"Progress: {progress:.2f}% ({bytes_sent}/{total_bytes} bytes)")
