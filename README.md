@@ -44,7 +44,7 @@ Inicie o servidor: ```python server.py 5000 received_file.dat 0.05```
 
 Isso inicia um servidor na porta 5000, salvando os dados recebidos no arquivo received_file.dat e simulando uma perda de pacotes de 5%.
 
-Em outra aba do terminal, inicie o cliente: ```python client.py 127.0.0.1 5000 test_file.dat```
+Em outra aba do terminal, inicie o cliente: ```python client.py 127.0.0.1 5000 bigfile.bin```
 
 Para enviar dados sintéticos, utilize: ```python client.py 127.0.0.1 5000 --synthetic 4096```
 

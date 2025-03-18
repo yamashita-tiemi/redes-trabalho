@@ -14,7 +14,7 @@ HEADER_SIZE = 14  # Size of the header in bytes (seq, ack, flags, window)
 MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - HEADER_SIZE
 DEFAULT_TIMEOUT = 1.0  # Timeout in seconds
 MAX_RETRIES = 10  # Maximum number of retransmission attempts
-INITIAL_WINDOW_SIZE = 1  # Initial window size (packets)
+INITIAL_WINDOW_SIZE = 4  # Initial window size (packets) - increased from 1
 INITIAL_SSTHRESH = 64  # Initial slow start threshold
 MAX_WINDOW_SIZE = 128  # Maximum window size
 
@@ -46,7 +46,7 @@ class Packet:
     
     @staticmethod
     def from_bytes(data):
-        """Convert received bytes to a Packet object"""
+        """Converte bytes recebidos em um objeto Packet"""
         if len(data) < HEADER_SIZE:
             return None
         
@@ -54,6 +54,8 @@ class Packet:
         payload = data[HEADER_SIZE:]
         
         seq_num, ack_num, flags_value, window = struct.unpack('!IIIH', header)
+        
+        # Converte flags_value para o enum PacketType apropriado
         flags = PacketType(flags_value)
         
         return Packet(seq_num, ack_num, flags, window, payload)

@@ -1,0 +1,4 @@
+__pycache__/
+test_output/
+received_file.dat
+.DS_Store

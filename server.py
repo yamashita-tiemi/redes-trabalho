@@ -12,7 +12,7 @@ from collections import defaultdict, deque
 from protocol import ReliableUDP, Packet, PacketType, MAX_PAYLOAD_SIZE
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('ReliableUDP-Server')
 
 class ReliableUDPServer(ReliableUDP):
@@ -37,6 +37,10 @@ class ReliableUDPServer(ReliableUDP):
         self.max_window_size = 64  # Maximum receiver window size
         self.window_size = self.max_window_size
         self.buffer_capacity = self.max_window_size * MAX_PAYLOAD_SIZE  # Buffer capacity in bytes
+        self.client_window = 0  # Window size advertised by client
+        
+        # Bytes currently being processed
+        self.processing_bytes = 0
         
         # Statistics
         self.received_packets = 0
@@ -48,8 +52,6 @@ class ReliableUDPServer(ReliableUDP):
         """Wait for a client to connect"""
         logger.info("Waiting for client connection on %s", self.sock.getsockname())
 
-        logger.info(f"Expected sequence after SYN: {self.expected_seq_num}")
-        
         while True:
             # Wait for SYN packet
             packet, addr = self.receive_packet()
@@ -63,10 +65,18 @@ class ReliableUDPServer(ReliableUDP):
                 
                 # Update expected sequence number
                 self.expected_seq_num = packet.seq_num + 1
-                logger.info(f"Expected sequence after SYN: {self.expected_seq_num}")
+                logger.info("Expected sequence after SYN: %d", self.expected_seq_num)
                 
-                # Send SYN-ACK
-                self.send_packet(PacketType.SYN, ack_num=self.expected_seq_num)
+                # Save client's window size if available
+                if hasattr(packet, 'window'):
+                    self.client_window = packet.window
+                    logger.info("Client advertised window size: %d", self.client_window)
+                
+                # Update our window before sending SYN-ACK
+                self._update_window_size()
+                
+                # Send SYN-ACK with our window size
+                self.send_packet(PacketType.SYN, ack_num=self.expected_seq_num, window=self.window_size)
                 
                 # Wait for ACK to complete three-way handshake
                 ack_packet, _ = self.receive_packet(timeout=5.0)
@@ -75,11 +85,33 @@ class ReliableUDPServer(ReliableUDP):
                     self.remote_addr = None
                     continue
                 
+                # Update client window size if provided in ACK
+                if hasattr(ack_packet, 'window'):
+                    self.client_window = ack_packet.window
+                    logger.info("Client advertised window size in ACK: %d", self.client_window)
+                
                 logger.info("Connection established with %s", addr)
                 return True
             
             else:
                 logger.warning("Received non-SYN packet during connection setup, ignoring")
+    
+    def _update_window_size(self):
+        """Update the receiver's window size based on buffer usage"""
+        # Calculate bytes in buffer (not processed)
+        buffer_usage = sum(len(p.payload) for p in self.receive_buffer.values())
+        
+        # Add bytes being processed
+        total_buffer_usage = buffer_usage + self.processing_bytes
+        
+        # Calculate available space
+        available_space = max(0, self.buffer_capacity - total_buffer_usage)
+        
+        # Convert to packet slots
+        self.window_size = max(1, available_space // MAX_PAYLOAD_SIZE)
+        
+        logger.debug("Server window size: %d (buffer usage: %d/%d)", 
+                     self.window_size, total_buffer_usage, self.buffer_capacity)
     
     def receive_data(self, output_file=None):
         """Receive data from a client"""
@@ -88,7 +120,7 @@ class ReliableUDPServer(ReliableUDP):
         if output_file:
             file_path = os.path.join(self.output_dir, output_file)
             file_obj = open(file_path, 'wb')
-            logger.info(f"Writing received data to {file_path}")
+            logger.info("Writing received data to %s", file_path)
         
         try:
             data_buffer = bytearray()
@@ -99,10 +131,10 @@ class ReliableUDPServer(ReliableUDP):
             connection_active = True
             
             while connection_active:
-                packet, addr = self.receive_packet(timeout=10.0)
-
-                # if packet:
-                #     logger.info(f"Received raw packet with seq={packet.seq_num}, ack={packet.ack_num}, flags={packet.flags}")
+                # Update window size before potentially receiving a packet
+                self._update_window_size()
+                
+                packet, addr = self.receive_packet(timeout=30.0)
                 
                 if not packet:
                     logger.info("No packet received within timeout, assuming connection closed")
@@ -112,24 +144,31 @@ class ReliableUDPServer(ReliableUDP):
                 if addr != self.remote_addr:
                     continue
                 
+                # Update client window size if available in packet
+                if hasattr(packet, 'window'):
+                    self.client_window = packet.window
+                    logger.debug("Client window size updated: %d", self.client_window)
+                
                 # Handle packet based on type
                 if packet.flags == PacketType.DATA:
                     connection_active = self._handle_data_packet(packet, file_obj, data_buffer, last_delivered_seq)
                     
                 elif packet.flags == PacketType.FIN:
                     logger.info("Received FIN packet, connection closing")
-                    self.send_packet(PacketType.FIN, ack_num=packet.seq_num + 1)
+                    # Send FIN with our current window
+                    self._update_window_size()
+                    self.send_packet(PacketType.FIN, ack_num=packet.seq_num + 1, window=self.window_size)
                     connection_active = False
             
             # Calculate statistics
             duration = time.time() - start_time
             if duration > 0:
                 throughput = self.total_bytes / duration / 1024  # KB/s
-                logger.info(f"Transfer complete in {duration:.2f} seconds")
-                logger.info(f"Throughput: {throughput:.2f} KB/s")
-                logger.info(f"Total packets received: {self.received_packets}")
-                logger.info(f"Packets dropped (simulated loss): {self.dropped_packets}")
-                logger.info(f"Out-of-order packets: {self.out_of_order_packets}")
+                logger.info("Transfer complete in %.2f seconds", duration)
+                logger.info("Throughput: %.2f KB/s", throughput)
+                logger.info("Total packets received: %d", self.received_packets)
+                logger.info("Packets dropped (simulated loss): %d", self.dropped_packets)
+                logger.info("Out-of-order packets: %d", self.out_of_order_packets)
             
             # Return the received data if no file was specified
             if not file_obj:
@@ -137,7 +176,7 @@ class ReliableUDPServer(ReliableUDP):
             return True
             
         except Exception as e:
-            logger.error(f"Error receiving data: {e}")
+            logger.error("Error receiving data: %s", e)
             return False
         finally:
             if file_obj:
@@ -145,65 +184,88 @@ class ReliableUDPServer(ReliableUDP):
     
     def _handle_data_packet(self, packet, file_obj, data_buffer, last_delivered_seq):
         """Process a received data packet"""
-        # logger.info(f"Received packet: seq={packet.seq_num}, payload size={len(packet.payload)}")
-
-        # # In _handle_data_packet, add this logging:
-        # if file_obj:
-        #     logger.info(f"Writing {len(packet.payload)} bytes to file at position {file_obj.tell()}")
-        #     file_obj.write(packet.payload)
-        #     logger.info(f"After write, file position is {file_obj.tell()}")
-
-        # if file_obj:
-        #     file_obj.write(packet.payload)
-        #     file_obj.flush()  # Force flush to disk
+        logger.debug("Packet received: seq=%d, expected=%d", packet.seq_num, self.expected_seq_num)
 
         # Simulate packet loss
         if random.random() < self.packet_loss_rate:
             self.dropped_packets += 1
-            logger.debug(f"Simulating packet loss for seq={packet.seq_num}")
+            logger.debug("Simulating packet loss: seq={packet.seq_num}, expected={self.expected_seq_num}, total_dropped={self.dropped_packets}")
             # Still send ACK for the last correctly received packet to trigger fast retransmit
-            self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num)
+            self._update_window_size()
+            self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num, window=self.window_size)
+            logger.debug(f"Sent duplicate ACK: ack_num={self.expected_seq_num} after simulated loss")
             return True
         
         self.received_packets += 1
         
         # Check if this is the expected packet
         if packet.seq_num == self.expected_seq_num:
+            # Mark bytes as "processing" before writing to file/buffer
+            payload_size = len(packet.payload)
+            self.processing_bytes += payload_size
+            
             # Process this packet
             if file_obj:
                 file_obj.write(packet.payload)
+                file_obj.flush()  # Ensure data is written to disk
             else:
                 data_buffer.extend(packet.payload)
             
-            self.total_bytes += len(packet.payload)
+            # After processing, bytes are no longer "processing"
+            self.processing_bytes -= payload_size
+            
+            self.total_bytes += payload_size
             last_delivered_seq = packet.seq_num
-            self.expected_seq_num += len(packet.payload)
+            self.expected_seq_num += payload_size
             
             # Check if we have any buffered packets that can now be processed
-            while self.expected_seq_num in self.receive_buffer:
-                buffered_packet = self.receive_buffer.pop(self.expected_seq_num)
+            # First sort the keys to process in order
+            # ordered_keys = sorted([k for k in self.receive_buffer.keys() if k == self.expected_seq_num])
+            ordered_keys = []
+            next_expected = self.expected_seq_num
+
+            # Verificar continuamente qual o próximo pacote na sequência
+            while next_expected in self.receive_buffer:
+                ordered_keys.append(next_expected)
+                next_expected += len(self.receive_buffer[next_expected].payload)
+            
+            for seq in ordered_keys:
+                buffered_packet = self.receive_buffer.pop(seq)
+                payload_size = len(buffered_packet.payload)
+                
+                # Mark as processing
+                self.processing_bytes += payload_size
+                
                 if file_obj:
                     file_obj.write(buffered_packet.payload)
+                    file_obj.flush()  # Ensure data is written to disk
                 else:
                     data_buffer.extend(buffered_packet.payload)
                 
-                self.total_bytes += len(buffered_packet.payload)
+                # Processing complete
+                self.processing_bytes -= payload_size
+                
+                self.total_bytes += payload_size
                 last_delivered_seq = buffered_packet.seq_num
-                self.expected_seq_num += len(buffered_packet.payload)
+                self.expected_seq_num += payload_size
         
         elif packet.seq_num > self.expected_seq_num:
             # Out of order packet - buffer it
             self.out_of_order_packets += 1
             self.receive_buffer[packet.seq_num] = packet
-            logger.debug(f"Out-of-order packet: expected={self.expected_seq_num}, received={packet.seq_num}")
+            logger.debug("Out-of-order packet: expected=%d, received=%d", 
+                         self.expected_seq_num, packet.seq_num)
+            
+            # Envie imediatamente um ACK duplicado para o último pacote recebido em ordem
+            # Isso ajuda a acionar o fast retransmit no cliente
+            self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num, window=self.window_size)
+            logger.debug(f"Sent duplicate ACK: ack_num={self.expected_seq_num} due to gap in sequence")
         
-        # Adjust flow control window based on buffer usage
-        buffer_usage = sum(len(p.payload) for p in self.receive_buffer.values())
-        available_space = self.buffer_capacity - buffer_usage
-        self.window_size = max(1, available_space // MAX_PAYLOAD_SIZE)
+        # Adjust window size after processing the packet
+        self._update_window_size()
         
-        # Send cumulative ACK
-        self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num,  window=self.window_size)
+        # Send cumulative ACK with current window size
+        self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num, window=self.window_size)
         
         return True
 
@@ -221,7 +283,7 @@ def main():
     packet_loss_rate = 0.1
     if len(sys.argv) > 3:
         packet_loss_rate = float(sys.argv[3])
-        logger.info(f"Simulating packet loss rate of {packet_loss_rate:.1%}")
+        logger.info("Simulating packet loss rate of %.1f%%", packet_loss_rate * 100)
     
     server = ReliableUDPServer('0.0.0.0', listen_port, packet_loss_rate=packet_loss_rate)
     
