@@ -237,10 +237,10 @@ class ReliableUDPClient(ReliableUDP):
             throughput = bytes_sent / elapsed / 1024 if elapsed > 0 else 0
             
             logger.info("Progress: %.2f%% (%d/%d bytes)", progress, bytes_sent, total_bytes)
-            logger.info("Window Stats: cwnd=%.2f, rwnd=%d, effective=%d, in_flight=%d, ssthresh=%.2f", 
+            logger.debug("Window Stats: cwnd=%.2f, rwnd=%d, effective=%d, in_flight=%d, ssthresh=%.2f", 
                        self.congestion.cwnd, self.receiver_window, effective_window, 
                        packets_in_flight, self.congestion.ssthresh)
-            logger.info("Performance: %.2f KB/s, RTT=%.3fs, RTO=%.3fs, Retransmissions=%d", 
+            logger.debug("Performance: %.2f KB/s, RTT=%.3fs, RTO=%.3fs, Retransmissions=%d", 
                        throughput, self.rtt_estimator.srtt, self.rtt_estimator.rto, self.retransmissions)
             
             # Log congestion state
@@ -250,7 +250,7 @@ class ReliableUDPClient(ReliableUDP):
                 state = "SLOW START"
             else:
                 state = "CONGESTION AVOIDANCE"
-            logger.info("Congestion state: %s", state)
+            logger.debug("Congestion state: %s", state)
             
             self.last_log_time = current_time
     
@@ -369,7 +369,7 @@ class ReliableUDPClient(ReliableUDP):
             if self.congestion.duplicate_acks >= 3 and self.base in self.send_buffer:
                 packet, retries = self.send_buffer[self.base]
                 
-                logger.warning(f"Fast retransmit triggered for seq={self.base}, after {self.congestion.duplicate_acks} duplicate ACKs")
+                logger.debug(f"Fast retransmit triggered for seq={self.base}, after {self.congestion.duplicate_acks} duplicate ACKs")
                 
                 # Retransmita o pacote
                 updated_packet = Packet(
@@ -465,7 +465,7 @@ class ReliableUDPClient(ReliableUDP):
             # Retransmit the packet with updated window
             self.sock.sendto(updated_packet.to_bytes(), self.remote_addr)
             self.retransmissions += 1
-            logger.warning("Retransmitting packet: seq=%d, size=%d bytes, attempt=%d", 
+            logger.debug("Retransmitting packet: seq=%d, size=%d bytes, attempt=%d", 
                           packet.seq_num, len(packet.payload), retries+1)
             
             # Update packet in send buffer with the new one
