@@ -189,11 +189,10 @@ class ReliableUDPServer(ReliableUDP):
         # Simulate packet loss
         if random.random() < self.packet_loss_rate:
             self.dropped_packets += 1
-            logger.debug("Simulating packet loss: seq={packet.seq_num}, expected={self.expected_seq_num}, total_dropped={self.dropped_packets}")
+            logger.debug("Simulating packet loss for seq=%d", packet.seq_num)
             # Still send ACK for the last correctly received packet to trigger fast retransmit
             self._update_window_size()
             self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num, window=self.window_size)
-            logger.debug(f"Sent duplicate ACK: ack_num={self.expected_seq_num} after simulated loss")
             return True
         
         self.received_packets += 1
@@ -220,14 +219,7 @@ class ReliableUDPServer(ReliableUDP):
             
             # Check if we have any buffered packets that can now be processed
             # First sort the keys to process in order
-            # ordered_keys = sorted([k for k in self.receive_buffer.keys() if k == self.expected_seq_num])
-            ordered_keys = []
-            next_expected = self.expected_seq_num
-
-            # Verificar continuamente qual o próximo pacote na sequência
-            while next_expected in self.receive_buffer:
-                ordered_keys.append(next_expected)
-                next_expected += len(self.receive_buffer[next_expected].payload)
+            ordered_keys = sorted([k for k in self.receive_buffer.keys() if k == self.expected_seq_num])
             
             for seq in ordered_keys:
                 buffered_packet = self.receive_buffer.pop(seq)
@@ -255,11 +247,6 @@ class ReliableUDPServer(ReliableUDP):
             self.receive_buffer[packet.seq_num] = packet
             logger.debug("Out-of-order packet: expected=%d, received=%d", 
                          self.expected_seq_num, packet.seq_num)
-            
-            # Envie imediatamente um ACK duplicado para o último pacote recebido em ordem
-            # Isso ajuda a acionar o fast retransmit no cliente
-            self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num, window=self.window_size)
-            logger.debug(f"Sent duplicate ACK: ack_num={self.expected_seq_num} due to gap in sequence")
         
         # Adjust window size after processing the packet
         self._update_window_size()

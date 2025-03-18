@@ -10,7 +10,6 @@ import sys
 from collections import deque
 import math
 from protocol import ReliableUDP, Packet, PacketType, MAX_PAYLOAD_SIZE, INITIAL_WINDOW_SIZE
-import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -48,8 +47,6 @@ class ReliableUDPClient(ReliableUDP):
         self.start_time = None
         self.last_log_time = 0
         self.log_interval = 2.0  # Log every 2 seconds
-
-        self.timer = None  # Adicione esta linha para armazenar o objeto timer
     
     def establish_connection(self):
         """Establish connection with three-way handshake"""
@@ -237,10 +234,10 @@ class ReliableUDPClient(ReliableUDP):
             throughput = bytes_sent / elapsed / 1024 if elapsed > 0 else 0
             
             logger.info("Progress: %.2f%% (%d/%d bytes)", progress, bytes_sent, total_bytes)
-            logger.debug("Window Stats: cwnd=%.2f, rwnd=%d, effective=%d, in_flight=%d, ssthresh=%.2f", 
+            logger.info("Window Stats: cwnd=%.2f, rwnd=%d, effective=%d, in_flight=%d, ssthresh=%.2f", 
                        self.congestion.cwnd, self.receiver_window, effective_window, 
                        packets_in_flight, self.congestion.ssthresh)
-            logger.debug("Performance: %.2f KB/s, RTT=%.3fs, RTO=%.3fs, Retransmissions=%d", 
+            logger.info("Performance: %.2f KB/s, RTT=%.3fs, RTO=%.3fs, Retransmissions=%d", 
                        throughput, self.rtt_estimator.srtt, self.rtt_estimator.rto, self.retransmissions)
             
             # Log congestion state
@@ -250,7 +247,7 @@ class ReliableUDPClient(ReliableUDP):
                 state = "SLOW START"
             else:
                 state = "CONGESTION AVOIDANCE"
-            logger.debug("Congestion state: %s", state)
+            logger.info("Congestion state: %s", state)
             
             self.last_log_time = current_time
     
@@ -362,73 +359,50 @@ class ReliableUDPClient(ReliableUDP):
         old_ssthresh = self.congestion.ssthresh
         
         # Update congestion control
-        if ack_packet.ack_num == self.base:  # Este é um ACK duplicado
-            self.congestion.on_ack_received(ack_packet.ack_num)  # Isso já incrementa duplicate_acks
-            
-            # Se recebermos 3 ACKs duplicados, retransmita o pacote perdido imediatamente
-            if self.congestion.duplicate_acks >= 3 and self.base in self.send_buffer:
-                packet, retries = self.send_buffer[self.base]
-                
-                logger.debug(f"Fast retransmit triggered for seq={self.base}, after {self.congestion.duplicate_acks} duplicate ACKs")
-                
-                # Retransmita o pacote
-                updated_packet = Packet(
-                    seq_num=packet.seq_num,
-                    ack_num=packet.ack_num,
-                    flags=packet.flags,
-                    window=self.window_size,
-                    payload=packet.payload
-                )
-                
-                self.sock.sendto(updated_packet.to_bytes(), self.remote_addr)
-                self.retransmissions += 1
-                
-                # Atualize o pacote no buffer
-                self.send_buffer[self.base] = (updated_packet, retries + 1)
-        else:
+        self.congestion.on_ack_received(ack_packet.ack_num)
         
-            # Log if congestion window changed significantly
-            if abs(old_cwnd - self.congestion.cwnd) > 1 or old_ssthresh != self.congestion.ssthresh:
-                logger.debug("Congestion window update: %.2f -> %.2f (ssthresh=%.2f)", 
-                            old_cwnd, self.congestion.cwnd, self.congestion.ssthresh)
+        # Log if congestion window changed significantly
+        if abs(old_cwnd - self.congestion.cwnd) > 1 or old_ssthresh != self.congestion.ssthresh:
+            logger.debug("Congestion window update: %.2f -> %.2f (ssthresh=%.2f)", 
+                        old_cwnd, self.congestion.cwnd, self.congestion.ssthresh)
+        
+        # Cumulative ACK - all packets up to ack_num are acknowledged
+        if ack_packet.ack_num > self.base:
+            # Count acknowledged packets
+            acked_bytes = ack_packet.ack_num - self.base
+            acked_packets = math.ceil(acked_bytes / MAX_PAYLOAD_SIZE)
+            logger.debug("ACK received: %d, acknowledging %d bytes (%d packets)", 
+                        ack_packet.ack_num, acked_bytes, acked_packets)
             
-            # Cumulative ACK - all packets up to ack_num are acknowledged
-            if ack_packet.ack_num > self.base:
-                # Count acknowledged packets
-                acked_bytes = ack_packet.ack_num - self.base
-                acked_packets = math.ceil(acked_bytes / MAX_PAYLOAD_SIZE)
-                logger.debug("ACK received: %d, acknowledging %d bytes (%d packets)", 
-                            ack_packet.ack_num, acked_bytes, acked_packets)
-                
-                # Remove acknowledged packets from the send buffer
-                keys_to_remove = [seq for seq in self.send_buffer if seq < ack_packet.ack_num]
-                for seq in keys_to_remove:
-                    # Update RTT estimator if this is the oldest packet
-                    if seq == self.base:
-                        packet, _ = self.send_buffer[seq]
-                        rtt = time.time() - packet.timestamp
-                        old_rto = self.rtt_estimator.rto
-                        new_rto = self.rtt_estimator.update(rtt)
-                        
-                        if abs(old_rto - new_rto) > 0.1:  # Only log significant changes
-                            logger.debug("RTT update: measured=%.3fs, srtt=%.3fs, rto=%.3fs", 
-                                        rtt, self.rtt_estimator.srtt, new_rto)
+            # Remove acknowledged packets from the send buffer
+            keys_to_remove = [seq for seq in self.send_buffer if seq < ack_packet.ack_num]
+            for seq in keys_to_remove:
+                # Update RTT estimator if this is the oldest packet
+                if seq == self.base:
+                    packet, _ = self.send_buffer[seq]
+                    rtt = time.time() - packet.timestamp
+                    old_rto = self.rtt_estimator.rto
+                    new_rto = self.rtt_estimator.update(rtt)
                     
-                    del self.send_buffer[seq]
+                    if abs(old_rto - new_rto) > 0.1:  # Only log significant changes
+                        logger.debug("RTT update: measured=%.3fs, srtt=%.3fs, rto=%.3fs", 
+                                    rtt, self.rtt_estimator.srtt, new_rto)
                 
-                # Update base
-                self.base = ack_packet.ack_num
-                
-                # If all packets are acknowledged, stop the timer
-                if self.base == self.next_seq_to_send:
-                    self.stop_timer()
-                    logger.debug("All packets acknowledged, window clear")
-                else:
-                    # Restart the timer for the next unacknowledged packet
-                    self.set_timer()
-                    # Log packets still in flight
-                    packets_in_flight = (self.next_seq_to_send - self.base) // MAX_PAYLOAD_SIZE
-                    logger.debug("Packets still in flight: %d", packets_in_flight)
+                del self.send_buffer[seq]
+            
+            # Update base
+            self.base = ack_packet.ack_num
+            
+            # If all packets are acknowledged, stop the timer
+            if self.base == self.next_seq_to_send:
+                self.stop_timer()
+                logger.debug("All packets acknowledged, window clear")
+            else:
+                # Restart the timer for the next unacknowledged packet
+                self.set_timer()
+                # Log packets still in flight
+                packets_in_flight = (self.next_seq_to_send - self.base) // MAX_PAYLOAD_SIZE
+                logger.debug("Packets still in flight: %d", packets_in_flight)
     
     def _handle_timeout(self):
         """Handle timeouts and perform retransmissions"""
@@ -440,8 +414,6 @@ class ReliableUDPClient(ReliableUDP):
         
         logger.warning("Timeout detected. Congestion window: %.2f -> %.2f, ssthresh: %.2f -> %.2f", 
                       old_cwnd, self.congestion.cwnd, old_ssthresh, self.congestion.ssthresh)
-        
-        logger.warning(f"TIMEOUT DETECTED: base_seq={self.base}, next_seq_to_send={self.next_seq_to_send}, packets_in_flight={(self.next_seq_to_send-self.base)//MAX_PAYLOAD_SIZE}")
         
         # Find the oldest unacknowledged packet
         if self.base in self.send_buffer:
@@ -465,7 +437,7 @@ class ReliableUDPClient(ReliableUDP):
             # Retransmit the packet with updated window
             self.sock.sendto(updated_packet.to_bytes(), self.remote_addr)
             self.retransmissions += 1
-            logger.debug("Retransmitting packet: seq=%d, size=%d bytes, attempt=%d", 
+            logger.warning("Retransmitting packet: seq=%d, size=%d bytes, attempt=%d", 
                           packet.seq_num, len(packet.payload), retries+1)
             
             # Update packet in send buffer with the new one
@@ -475,23 +447,15 @@ class ReliableUDPClient(ReliableUDP):
             self.set_timer()
     
     def set_timer(self):
-        """Set a timer for the oldest unacknowledged packet"""
-        # Cancele qualquer timer existente primeiro
-        self.stop_timer()
-        
-        # Crie um novo timer
-        timeout = self.rtt_estimator.get_timeout()
-        self.timer = threading.Timer(timeout, self._handle_timeout)
-        self.timer.daemon = True  # Para que o timer não bloqueie a saída do programa
-        self.timer.start()
-        logger.debug(f"Timer set for {timeout:.3f} seconds")
+        """Set a timer for the oldest unacknowledged packet (non-blocking)"""
+        # In a real implementation, this would set a timer callback
+        # For simplicity, we'll use the timeout in receive_packet instead
+        pass
     
     def stop_timer(self):
         """Stop the retransmission timer"""
-        if self.timer is not None:
-            self.timer.cancel()
-            self.timer = None
-            logger.debug("Timer stopped")
+        # In a real implementation, this would cancel the timer
+        pass
 
 
 def main():
