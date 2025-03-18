@@ -203,7 +203,7 @@ class ReliableUDPServer(ReliableUDP):
         self.window_size = max(1, available_space // MAX_PAYLOAD_SIZE)
         
         # Send cumulative ACK
-        self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num)
+        self.send_packet(PacketType.ACK, ack_num=self.expected_seq_num,  window=self.window_size)
         
         return True
 
@@ -218,7 +218,7 @@ def main():
     output_file = sys.argv[2]
     
     # Optional packet loss rate
-    packet_loss_rate = 0.0
+    packet_loss_rate = 0.1
     if len(sys.argv) > 3:
         packet_loss_rate = float(sys.argv[3])
         logger.info(f"Simulating packet loss rate of {packet_loss_rate:.1%}")

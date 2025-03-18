@@ -12,7 +12,7 @@ import struct
 MAX_PACKET_SIZE = 1024  # Maximum packet size in bytes
 HEADER_SIZE = 14  # Size of the header in bytes (seq, ack, flags, window)
 MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - HEADER_SIZE
-DEFAULT_TIMEOUT = 0.5  # Timeout in seconds
+DEFAULT_TIMEOUT = 1.0  # Timeout in seconds
 MAX_RETRIES = 10  # Maximum number of retransmission attempts
 INITIAL_WINDOW_SIZE = 1  # Initial window size (packets)
 INITIAL_SSTHRESH = 64  # Initial slow start threshold
@@ -128,13 +128,13 @@ class ReliableUDP:
         self.congestion = CongestionControl()  # Congestion control
         self.rtt_estimator = RTTEstimator()  # For adaptive timeout
     
-    def send_packet(self, packet_type, payload=b'', ack_num=0):
+    def send_packet(self, packet_type, payload=b'', ack_num=0, window=0):
         """Create and send a packet"""
         packet = Packet(
             seq_num=self.sequence_number,
             ack_num=ack_num,
             flags=packet_type,
-            window=self.window_size,
+            window=window,
             payload=payload
         )
         

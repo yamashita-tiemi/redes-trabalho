@@ -195,8 +195,11 @@ class ReliableUDPClient(ReliableUDP):
     def _send_available_data(self, file):
         """Send data chunks from file that fit within the window"""
         # Calculate effective window size (minimum of congestion window and flow control window)
-        effective_window = self.congestion.get_window_size(self.receiver_window)
-        
+        effective_window = min(
+        self.congestion.get_window_size(self.receiver_window),  # Janela de congestionamento
+        self.receiver_window  # Janela do receptor
+        )
+
         # Calculate how many more packets can be sent in the current window
         packets_in_flight = (self.next_seq_to_send - self.base) // MAX_PAYLOAD_SIZE
         available_slots = effective_window - packets_in_flight
@@ -250,6 +253,7 @@ class ReliableUDPClient(ReliableUDP):
     def _process_ack(self, ack_packet):
         """Process an ACK packet"""
         # Update congestion control
+        self.receiver_window = ack_packet.window
         self.congestion.on_ack_received(ack_packet.ack_num)
         
         # Cumulative ACK - all packets up to ack_num are acknowledged
@@ -313,26 +317,32 @@ class ReliableUDPClient(ReliableUDP):
 
 def main():
     """Main function to run the client"""
-    if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <server_ip> <server_port> <file_path>")
-        print(f"   or: {sys.argv[0]} <server_ip> <server_port> --synthetic <bytes>")
-        sys.exit(1)
-    
-    server_ip = sys.argv[1]
-    server_port = int(sys.argv[2])
-    
-    client = ReliableUDPClient(server_ip, server_port)
-    
-    if sys.argv[3] == "--synthetic":
-        if len(sys.argv) < 5:
-            print("Error: Missing byte count for synthetic data")
+
+    try:
+        # Código atual do main
+        if len(sys.argv) < 4:
+            print(f"Usage: {sys.argv[0]} <server_ip> <server_port> <file_path>")
+            print(f"   or: {sys.argv[0]} <server_ip> <server_port> --synthetic <bytes>")
             sys.exit(1)
         
-        bytes_to_send = int(sys.argv[4])
-        client.send_synthetic_data(bytes_to_send)
-    else:
-        file_path = sys.argv[3]
-        client.send_file(file_path)
+        server_ip = sys.argv[1]
+        server_port = int(sys.argv[2])
+        
+        client = ReliableUDPClient(server_ip, server_port)
+        
+        if sys.argv[3] == "--synthetic":
+            if len(sys.argv) < 5:
+                print("Error: Missing byte count for synthetic data")
+                sys.exit(1)
+            
+            bytes_to_send = int(sys.argv[4])
+            client.send_synthetic_data(bytes_to_send)
+        else:
+            file_path = sys.argv[3]
+            client.send_file(file_path)
+    except KeyboardInterrupt:
+        logger.info("Client interrupted by user. Closing connection.")
+        client.close_connection()
 
 
 if __name__ == "__main__":
