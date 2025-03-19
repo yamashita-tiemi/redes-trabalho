@@ -11,7 +11,7 @@ import random
 from collections import defaultdict, deque
 from protocol import ReliableUDP, Packet, PacketType, MAX_PAYLOAD_SIZE
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('ReliableUDP-Server')
 
@@ -20,29 +20,29 @@ class ReliableUDPServer(ReliableUDP):
     
     def __init__(self, listen_ip, listen_port, output_dir=None, packet_loss_rate=0.0):
         """Initialize server to listen on specified address"""
-        # Create UDP socket
+        # Cria UDP socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((listen_ip, listen_port))
         
-        # Initialize with a placeholder remote address (will be set on connection)
+        
         self.remote_addr = None
         super().__init__(self.sock, self.remote_addr)
         
-        # Receive buffer for ordering packets
-        self.receive_buffer = {}  # seq_num -> packet
+        # Recebe buffer para ordenar pacotes
+        self.receive_buffer = {}  # seq_num -> pacote
         self.packet_loss_rate = packet_loss_rate
         self.output_dir = output_dir or os.getcwd()
         
-        # Flow control
-        self.max_window_size = 64  # Maximum receiver window size
+        # Controle de Fluxo
+        self.max_window_size = 64  # Tamanho máximo de janela do receptor
         self.window_size = self.max_window_size
-        self.buffer_capacity = self.max_window_size * MAX_PAYLOAD_SIZE  # Buffer capacity in bytes
-        self.client_window = 0  # Window size advertised by client
+        self.buffer_capacity = self.max_window_size * MAX_PAYLOAD_SIZE  # Capacidade do buffer em bytes
+        self.client_window = 0  # Tamanho da janela informadda pelo cliente
         
-        # Bytes currently being processed
+        # Bytes sendo processados
         self.processing_bytes = 0
         
-        # Statistics
+        # Estatísticas
         self.received_packets = 0
         self.dropped_packets = 0
         self.out_of_order_packets = 0
