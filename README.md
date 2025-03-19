@@ -22,21 +22,6 @@ O projeto é composto pelos seguintes arquivos:
 
 - server.py - Implementação do destinatário.
 
-- test.py - Script de teste para avaliar a confiabilidade do protocolo.
-
-
-
-### Para executar
-
-#### Teste Automatizado
-O script test.py facilita a execução dos testes de transmissão de dados: ```python test.py```
-
-Por padrão, isso irá: Criar dados sintéticos (10MB), simular uma taxa de perda de pacotes de 5% e transferir os dados e verificar a integridade da transmissão.
-
-Para personalizar os testes, use: ```python test.py --test-type file --loss-rate 0.1 --data-size 20971520```
-
-Isso irá: Utilizar um arquivo real ao invés de dados sintéticos, configurar a taxa de perda de pacotes para 10% e usar um arquivo de 20MB para teste.
-
 
 #### Execução Manual
 
@@ -47,6 +32,10 @@ Isso inicia um servidor na porta 5000, salvando os dados recebidos no arquivo re
 Em outra aba do terminal, inicie o cliente: ```python client.py 127.0.0.1 5000 bigfile.bin```
 
 Para enviar dados sintéticos, utilize: ```python client.py 127.0.0.1 5000 --synthetic 4096```
+
+Ao rodar o cógico do cliente, os pngs dos gráficos são gerados automaticamente.
+
+Para rodar os testes, basta rodar o servidor primeiro e então ```python .\testes.py```
 
 ### Relatório
 
