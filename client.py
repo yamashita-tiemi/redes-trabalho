@@ -9,6 +9,7 @@ import os
 import sys
 from collections import deque
 import math
+import matplotlib.pyplot as plt 
 from protocol import ReliableUDP, Packet, PacketType, MAX_PAYLOAD_SIZE, INITIAL_WINDOW_SIZE
 
 # Configure logging
@@ -26,6 +27,14 @@ class ReliableUDPClient(ReliableUDP):
         server_addr = (server_ip, server_port)
         
         super().__init__(self.sock, server_addr)
+        
+         # Adicione estas listas
+        self.time_history = []
+        self.throughput_history = []
+        self.cwnd_history = []
+        self.rtt_history = []
+        self.rto_history = []
+        self.packets_in_flight_history = []
         
         # Send buffer for storing packets waiting for ACK
         self.send_buffer = {}  # seq_num -> (packet, retries)
@@ -108,6 +117,39 @@ class ReliableUDPClient(ReliableUDP):
         self.sock.close()
         logger.info("Connection closed")
     
+    def generate_graphs(self):
+    
+        # Gráfico de Throughput
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.time_history, self.throughput_history, label='Throughput (KB/s)')
+        plt.title("Throughput ao Longo do Tempo")
+        plt.xlabel("Tempo (s)")
+        plt.ylabel("KB/s")
+        plt.grid(True)
+        plt.legend()
+        plt.savefig("throughput.png")
+        
+        # Gráfico de Janela de Congestionamento
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.time_history, self.cwnd_history, label='Congestion Window (cwnd)')
+        plt.title("Janela de Congestionamento")
+        plt.xlabel("Tempo (s)")
+        plt.ylabel("Tamanho da Janela")
+        plt.grid(True)
+        plt.legend()
+        plt.savefig("cwnd.png")
+        
+        # Gráfico de RTT e RTO
+        plt.figure(figsize=(12, 6))
+        plt.plot(self.time_history, self.rtt_history, label='RTT (s)')
+        plt.plot(self.time_history, self.rto_history, label='RTO (s)')
+        plt.title("RTT e RTO ao Longo do Tempo")
+        plt.xlabel("Tempo (s)")
+        plt.ylabel("Tempo (s)")
+        plt.grid(True)
+        plt.legend()
+        plt.savefig("rtt_rto.png")
+    
     def send_file(self, file_path):
         """Send a file using the reliable protocol"""
         if not self.establish_connection():
@@ -151,6 +193,7 @@ class ReliableUDPClient(ReliableUDP):
                 logger.info("File sent successfully in %.2f seconds", duration)
                 logger.info("Throughput: %.2f KB/s", throughput)
                 
+                self.generate_graphs()
                 return True
                 
         except Exception as e:
@@ -222,6 +265,7 @@ class ReliableUDPClient(ReliableUDP):
     def _log_periodic_stats(self, bytes_sent, total_bytes, force=False):
         """Log detailed stats periodically"""
         current_time = time.time()
+        
         if force or (current_time - self.last_log_time >= self.log_interval):
             progress = (bytes_sent / total_bytes) * 100 if total_bytes > 0 else 0
             
@@ -232,6 +276,14 @@ class ReliableUDPClient(ReliableUDP):
             # Calculate instantaneous throughput
             elapsed = current_time - self.start_time
             throughput = bytes_sent / elapsed / 1024 if elapsed > 0 else 0
+            
+            self.time_history.append(elapsed)
+            self.throughput_history.append(bytes_sent / elapsed / 1024 if elapsed > 0 else 0)
+            self.cwnd_history.append(self.congestion.cwnd)
+            self.rtt_history.append(self.rtt_estimator.srtt)
+            self.rto_history.append(self.rtt_estimator.rto)
+            self.packets_in_flight_history.append(
+            (self.next_seq_to_send - self.base) // MAX_PAYLOAD_SIZE)
             
             logger.info("Progress: %.2f%% (%d/%d bytes)", progress, bytes_sent, total_bytes)
             logger.info("Window Stats: cwnd=%.2f, rwnd=%d, effective=%d, in_flight=%d, ssthresh=%.2f", 
